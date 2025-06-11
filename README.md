@@ -55,8 +55,7 @@ This application uses the FantasyCalc.com API, created by Josh Cordell. The API 
    ```
 4. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 Psst - this project is still work in progress...
+
+<img width="1115" alt="Screenshot 2025-06-11 at 11 07 54 AM" src="https://github.com/user-attachments/assets/f2d1e727-7fd6-4c4d-9c72-9504e26126a5" />
+<img width="1139" alt="Screenshot 2025-06-11 at 11 08 13 AM" src="https://github.com/user-attachments/assets/03bf4c26-28c1-434e-a20b-8e60df94050d" />
