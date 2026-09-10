@@ -85,3 +85,47 @@ export interface FantasyCalcQueryParams {
   /** Omitting this silently caps the response at ~199 entries. */
   limit?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Sleeper league snapshot
+//
+// These live here rather than in lib/sleeper.ts because that module is
+// `server-only` - the client needs the shapes, not the fetching.
+// ---------------------------------------------------------------------------
+
+export interface RosterAsset {
+  sleeperId: string;
+  name: string;
+  position: string;
+  team: string;
+  /** False for kickers and defenses, which FantasyCalc does not price. */
+  valued: boolean;
+  value?: number;
+  redraftValue?: number;
+  overallRank?: number;
+  maybeAge?: number;
+  isStarter: boolean;
+}
+
+export interface LeagueTeam {
+  rosterId: number;
+  ownerId: string | null;
+  displayName: string;
+  teamName: string;
+  players: RosterAsset[];
+  totalValue: number;
+  unvaluedCount: number;
+}
+
+export interface LeagueSnapshot {
+  league: {
+    id: string;
+    name: string;
+    season: string;
+    status: string;
+    teams: number;
+    rosterPositions: string[];
+  };
+  settings: LeagueSettings;
+  teams: LeagueTeam[];
+}

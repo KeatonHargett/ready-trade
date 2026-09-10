@@ -18,32 +18,45 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { isPick, type LeagueSettings, type Player } from '@/lib/types';
-import { usePlayers } from '@/lib/players';
+import { isPick, type Player } from '@/lib/types';
 
-/** Rendering 600 command items on every keystroke is wasteful; the list is scrollable anyway. */
+/** Rendering the whole pool on every keystroke is wasteful; the list scrolls anyway. */
 const MAX_RESULTS = 100;
 
 interface PlayerSelectorProps {
   selectedPlayers: Player[];
   onChange: (players: Player[]) => void;
-  leagueSettings: LeagueSettings;
+  /**
+   * The assets this side may select from - the full value list, or a single team's
+   * roster once a league is connected. The parent owns the data so both sides share
+   * one fetch.
+   */
+  pool: Player[];
+  showAge?: boolean;
+  isLoading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  placeholder?: string;
+  emptyMessage?: string;
 }
 
 export default function PlayerSelector({
   selectedPlayers,
   onChange,
-  leagueSettings,
+  pool,
+  showAge = false,
+  isLoading = false,
+  error = null,
+  onRetry,
+  placeholder = 'Select players',
+  emptyMessage = 'No players found.',
 }: PlayerSelectorProps) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { players, isLoading, error, retry } = usePlayers(leagueSettings);
-
-  // No debounce/throttle: filtering is a local array scan over a few hundred items.
-  // The original throttled this and *discarded* input that arrived inside the window,
-  // which left the list showing stale results.
+  // No debounce/throttle: this is a local array scan. The original throttled it and
+  // *discarded* input arriving inside the window, leaving the list stale.
   const search = useDeferredValue(inputValue);
 
   const selectedPlayerIds = useMemo(
@@ -53,12 +66,12 @@ export default function PlayerSelector({
 
   const filteredPlayers = useMemo(() => {
     const searchLower = search.trim().toLowerCase();
-    const available = players.filter((p) => !selectedPlayerIds.has(p.id));
+    const available = pool.filter((p) => !selectedPlayerIds.has(p.id));
     const matched = searchLower
       ? available.filter((p) => p.name.toLowerCase().includes(searchLower))
       : available;
     return matched.slice(0, MAX_RESULTS);
-  }, [players, selectedPlayerIds, search]);
+  }, [pool, selectedPlayerIds, search]);
 
   const handleSelect = (player: Player) => {
     onChange([...selectedPlayers, player]);
@@ -73,7 +86,7 @@ export default function PlayerSelector({
   const describe = (player: Player) => {
     if (isPick(player)) return 'Draft pick';
     const parts = [player.position, player.team].filter(Boolean).join(' - ');
-    return leagueSettings.isDynasty && player.maybeAge
+    return showAge && player.maybeAge
       ? `${parts} - age ${player.maybeAge.toFixed(1)}`
       : parts;
   };
@@ -86,9 +99,11 @@ export default function PlayerSelector({
             <AlertTriangle className="h-4 w-4 shrink-0" />
             {error}
           </span>
-          <Button variant="outline" size="sm" onClick={retry}>
-            Retry
-          </Button>
+          {onRetry && (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
         </div>
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
@@ -107,7 +122,7 @@ export default function PlayerSelector({
                 </>
               ) : (
                 <>
-                  <span className="truncate">Select players</span>
+                  <span className="truncate">{placeholder}</span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </>
               )}
@@ -117,14 +132,14 @@ export default function PlayerSelector({
             {/* We filter ourselves; without this cmdk applies a second fuzzy pass. */}
             <Command shouldFilter={false}>
               <CommandInput
-                placeholder="Search players or picks..."
+                placeholder="Search..."
                 value={inputValue}
                 onValueChange={setInputValue}
                 ref={inputRef}
                 className="w-full"
               />
               <CommandList>
-                <CommandEmpty>No players found.</CommandEmpty>
+                <CommandEmpty>{emptyMessage}</CommandEmpty>
                 <CommandGroup className="max-h-[300px] overflow-y-auto">
                   {filteredPlayers.map((player) => (
                     <CommandItem

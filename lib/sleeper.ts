@@ -5,8 +5,13 @@ import {
   PICK_POSITION,
   type FantasyCalcPlayerResponse,
   type LeagueSettings,
+  type LeagueSnapshot,
+  type LeagueTeam,
   type Player,
+  type RosterAsset,
 } from './types';
+
+export type { LeagueSnapshot, LeagueTeam, RosterAsset };
 
 const SLEEPER_API = 'https://api.sleeper.app/v1';
 
@@ -132,43 +137,6 @@ export function deriveSettings(league: SleeperLeague): LeagueSettings {
     numTeams: league.total_rosters,
     ppr: league.scoring_settings?.rec ?? 0,
   };
-}
-
-export interface RosterAsset {
-  sleeperId: string;
-  name: string;
-  position: string;
-  team: string;
-  /** False for kickers and defenses, which FantasyCalc does not price. */
-  valued: boolean;
-  value?: number;
-  redraftValue?: number;
-  overallRank?: number;
-  maybeAge?: number;
-  isStarter: boolean;
-}
-
-export interface LeagueTeam {
-  rosterId: number;
-  ownerId: string | null;
-  displayName: string;
-  teamName: string;
-  players: RosterAsset[];
-  totalValue: number;
-  unvaluedCount: number;
-}
-
-export interface LeagueSnapshot {
-  league: {
-    id: string;
-    name: string;
-    season: string;
-    status: string;
-    teams: number;
-    rosterPositions: string[];
-  };
-  settings: LeagueSettings;
-  teams: LeagueTeam[];
 }
 
 export async function getLeagueSnapshot(
