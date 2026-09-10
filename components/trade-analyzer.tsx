@@ -13,9 +13,11 @@ import { Switch } from '@/components/ui/switch';
 import PlayerSelector from '@/components/player-selector';
 import TradeAnalysis from '@/components/trade-analysis';
 import LeagueConnect from '@/components/league-connect';
+import TradePartners from '@/components/trade-partners';
 import type { LeagueSettings, LeagueTeam, Player } from '@/lib/types';
 import { usePlayers } from '@/lib/players';
 import { buildRosterPool, storage, useLeague } from '@/lib/league';
+import type { TradeSuggestion } from '@/lib/recommend';
 import {
   Command,
   CommandGroup,
@@ -88,6 +90,21 @@ export default function TradeAnalyzer() {
 
   const useRoster = isConnected && selectedTeam !== null;
   const givingPool = useRoster ? rosterPool.players : players;
+
+  const otherTeamPools = useMemo(() => {
+    if (!league.snapshot || !selectedTeam) return [];
+    return league.snapshot.teams
+      .filter((team) => team.rosterId !== selectedTeam.rosterId)
+      .map((team) => ({
+        team,
+        pool: buildRosterPool(team, players).players,
+      }));
+  }, [league.snapshot, selectedTeam, players]);
+
+  const applySuggestion = (suggestion: TradeSuggestion) => {
+    setPlayersGiving(suggestion.giving);
+    setPlayersGetting(suggestion.getting);
+  };
 
   const handleSelectTeam = (team: LeagueTeam | null) => {
     setSelectedTeam(team);
@@ -341,6 +358,15 @@ export default function TradeAnalyzer() {
           </CardContent>
         </Card>
       </div>
+
+      {useRoster && otherTeamPools.length > 0 && (
+        <TradePartners
+          myPool={givingPool}
+          others={otherTeamPools}
+          settings={leagueSettings}
+          onApply={applySuggestion}
+        />
+      )}
 
       <Card className="border-gray-800/20 dark:border-gray-300/10">
         <CardHeader className="flex flex-row items-center justify-between pb-3">

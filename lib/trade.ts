@@ -156,11 +156,22 @@ function buildNotes(
   return notes;
 }
 
+export interface EvaluateOptions {
+  /**
+   * Notes are string-built per call, which dominates when scanning thousands of
+   * candidate trades. The recommender scans with notes off, then re-evaluates the
+   * handful it keeps with them on. The scoring path is identical either way.
+   */
+  withNotes?: boolean;
+}
+
 export function evaluateTrade(
   playersGiving: Player[],
   playersGetting: Player[],
-  settings: LeagueSettings
+  settings: LeagueSettings,
+  options: EvaluateOptions = {}
 ): TradeEvaluation {
+  const { withNotes = true } = options;
   const giving = summarize(playersGiving);
   const getting = summarize(playersGetting);
 
@@ -176,7 +187,7 @@ export function evaluateTrade(
     difference,
     percentDifference,
     verdict: verdictFor(percentDifference),
-    notes: isComplete ? buildNotes(giving, getting, settings) : [],
+    notes: isComplete && withNotes ? buildNotes(giving, getting, settings) : [],
     isComplete,
   };
 }
