@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ArrowRight, Handshake, Users } from 'lucide-react';
+import { ArrowRight, Handshake, TrendingDown, Users } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -57,7 +57,8 @@ export default function TradePartners({
           <CardTitle className="mb-2">Trade Partners</CardTitle>
           <CardDescription>
             Every one-for-one and two-for-one across the league that lands inside
-            your fairness band. Draft picks are excluded.
+            your fairness band, ordered so deals that fill a hole for the other
+            side come first. Draft picks are excluded.
           </CardDescription>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -101,10 +102,22 @@ export default function TradePartners({
                       {partner.displayName}
                     </span>
                   </div>
-                  <Badge variant="secondary" className="shrink-0">
-                    {partner.fairCount} workable deal
-                    {partner.fairCount === 1 ? '' : 's'}
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {partner.thinPositions.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="gap-1 border-amber-500/40 text-amber-600 dark:text-amber-400"
+                      >
+                        <TrendingDown className="h-3 w-3" />
+                        Thin at {partner.thinPositions.join(', ')}
+                      </Badge>
+                    )}
+                    <Badge variant="secondary">
+                      {partner.fairCount} workable
+                      {partner.needFitCount > 0 &&
+                        ` · ${partner.needFitCount} fill a need`}
+                    </Badge>
+                  </div>
                 </div>
 
                 <ul className="space-y-2">
@@ -115,14 +128,22 @@ export default function TradePartners({
                         key={i}
                         className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm rounded-md bg-muted/40 px-3 py-2"
                       >
-                        <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                          <span className="truncate">
-                            {names(suggestion.giving)}
-                          </span>
-                          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate font-medium">
-                            {names(suggestion.getting)}
-                          </span>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                            <span className="truncate">
+                              {names(suggestion.giving)}
+                            </span>
+                            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span className="truncate font-medium">
+                              {names(suggestion.getting)}
+                            </span>
+                          </div>
+                          {suggestion.fillsNeed.length > 0 && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                              {partner.teamName} is thin at{' '}
+                              {suggestion.fillsNeed.join(' and ')}
+                            </p>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0">

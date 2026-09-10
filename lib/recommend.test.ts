@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { recommendPartners } from './recommend';
-import { PICK_POSITION, type LeagueSettings, type LeagueTeam, type Player } from './types';
+import { evaluateTrade } from './trade';
+import {
+  PICK_POSITION,
+  type LeagueSettings,
+  type LeagueTeam,
+  type Player,
+  type RosterAsset,
+} from './types';
 
 const SETTINGS: LeagueSettings = {
   isDynasty: true,
@@ -39,6 +46,30 @@ function team(rosterId: number, name: string): LeagueTeam {
     totalValue: 0,
     unvaluedCount: 0,
   };
+}
+
+function asset(position: string, value: number, isStarter = false): RosterAsset {
+  return {
+    sleeperId: String(nextId++),
+    name: `${position}${nextId}`,
+    position,
+    team: 'DAL',
+    valued: true,
+    value,
+    redraftValue: value,
+    overallRank: 50,
+    maybeAge: 25,
+    isStarter,
+  };
+}
+
+/** A LeagueTeam whose roster actually drives need scoring. */
+function rosteredTeam(
+  rosterId: number,
+  name: string,
+  players: RosterAsset[]
+): LeagueTeam {
+  return { ...team(rosterId, name), players };
 }
 
 describe('recommendPartners', () => {
@@ -155,6 +186,73 @@ describe('recommendPartners', () => {
     const consolidation = result.suggestions.find((s) => s.giving.length === 2);
     expect(consolidation).toBeDefined();
     expect(consolidation!.evaluation.notes.length).toBeGreaterThan(0);
+  });
+
+  it('ranks a deal filling a hole above an equally fair one at a deep position', () => {
+    // They start a TE but a weak one, and are deep at WR.
+    const them = rosteredTeam(2, 'Them', [
+      asset('TE', 500, true),
+      asset('WR', 5000, true),
+      asset('WR', 4800, true),
+      asset('WR', 4600),
+      asset('WR', 4400),
+    ]);
+    const rivals = [3, 4].map((id) =>
+      rosteredTeam(id, `Rival ${id}`, [
+        asset('TE', 6000, true),
+        asset('WR', 5000, true),
+      ])
+    );
+
+    // Two identically-valued assets I could send: a TE and a WR.
+    const mine = [
+      player(5000, { position: 'TE', name: 'My TE' }),
+      player(5000, { position: 'WR', name: 'My WR' }),
+    ];
+    const theirPool = [player(5000, { position: 'WR', name: 'Their WR' })];
+
+    const results = recommendPartners(
+      mine,
+      [
+        { team: them, pool: theirPool },
+        ...rivals.map((t) => ({ team: t, pool: [] as Player[] })),
+      ],
+      SETTINGS,
+      { maxPercent: 15, perTeam: 4 }
+    );
+
+    const partner = results.find((r) => r.teamName === 'Them')!;
+    expect(partner).toBeDefined();
+
+    // Both candidate 1-for-1s are exactly 0% apart, so only need can separate them.
+    const first = partner.suggestions[0];
+    expect(first.giving[0].position).toBe('TE');
+    expect(first.fillsNeed).toContain('TE');
+    expect(partner.thinPositions).toContain('TE');
+    expect(partner.needFitCount).toBeGreaterThan(0);
+  });
+
+  it('does not let need change any fairness percentage', () => {
+    const them = rosteredTeam(2, 'Them', [
+      asset('TE', 500, true),
+      asset('WR', 5000, true),
+    ]);
+    const mine = [player(5000, { position: 'TE' })];
+    const theirPool = [player(5400, { position: 'WR' })];
+
+    const [result] = recommendPartners(
+      mine,
+      [{ team: them, pool: theirPool }],
+      SETTINGS,
+      { maxPercent: 15 }
+    );
+
+    const suggestion = result.suggestions[0];
+    // Same numbers evaluateTrade would produce on its own, need or no need.
+    const direct = evaluateTrade(suggestion.giving, suggestion.getting, SETTINGS);
+    expect(suggestion.evaluation.percentDifference).toBe(direct.percentDifference);
+    expect(suggestion.evaluation.difference).toBe(direct.difference);
+    expect(suggestion.evaluation.verdict).toBe(direct.verdict);
   });
 
   it('returns nothing when there is no roster to trade from', () => {
