@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Card,
   CardContent,
@@ -10,15 +10,17 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { RefreshCw } from 'lucide-react';
 import PlayerSelector from '@/components/player-selector';
 import TradeAnalysis from '@/components/trade-analysis';
-import type { Player } from '@/lib/types';
+import LeagueConnect from '@/components/league-connect';
+import TradePartners from '@/components/trade-partners';
+import type { LeagueSettings, LeagueTeam, Player } from '@/lib/types';
+import { usePlayers } from '@/lib/players';
+import { buildRosterPool, storage, useLeague } from '@/lib/league';
+import type { TradeSuggestion } from '@/lib/recommend';
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
@@ -30,37 +32,91 @@ import {
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const DEFAULT_SETTINGS: LeagueSettings = {
+  isDynasty: true,
+  numQbs: 1,
+  numTeams: 12,
+  ppr: 1,
+};
+
 export default function TradeAnalyzer() {
   const [playersGiving, setPlayersGiving] = useState<Player[]>([]);
   const [playersGetting, setPlayersGetting] = useState<Player[]>([]);
+  const [leagueSettings, setLeagueSettings] =
+    useState<LeagueSettings>(DEFAULT_SETTINGS);
+  const [selectedTeam, setSelectedTeam] = useState<LeagueTeam | null>(null);
 
-  const [leagueSettings, setLeagueSettings] = useState({
-    isDynasty: false,
-    numQbs: 1,
-    numTeams: 12,
-    ppr: 1,
-  });
+  const league = useLeague();
+  const { players, isLoading, error, retry } = usePlayers(leagueSettings);
 
-  // Reset players when league settings change
+  const isConnected = Boolean(league.snapshot);
+
+  // Sleeper is the source of truth once connected, so adopt its settings verbatim.
   useEffect(() => {
+    if (league.snapshot) setLeagueSettings(league.snapshot.settings);
+  }, [league.snapshot]);
+
+  // Restore the previously chosen team when a league comes back.
+  useEffect(() => {
+    if (!league.snapshot) {
+      setSelectedTeam(null);
+      return;
+    }
+    const storedRosterId = storage.rosterId.read();
+    const restored = storedRosterId
+      ? league.snapshot.teams.find(
+          (team) => String(team.rosterId) === storedRosterId
+        )
+      : undefined;
+    setSelectedTeam(restored ?? null);
+  }, [league.snapshot]);
+
+  // Reset selections when settings change. Skips the initial mount so it does not
+  // needlessly replace two already-empty arrays.
+  const isInitialRender = useRef(true);
+  useEffect(() => {
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      return;
+    }
     setPlayersGiving([]);
     setPlayersGetting([]);
   }, [leagueSettings]);
+
+  const rosterPool = useMemo(
+    () => buildRosterPool(selectedTeam, players),
+    [selectedTeam, players]
+  );
+
+  const useRoster = isConnected && selectedTeam !== null;
+  const givingPool = useRoster ? rosterPool.players : players;
+
+  const otherTeamPools = useMemo(() => {
+    if (!league.snapshot || !selectedTeam) return [];
+    return league.snapshot.teams
+      .filter((team) => team.rosterId !== selectedTeam.rosterId)
+      .map((team) => ({
+        team,
+        pool: buildRosterPool(team, players).players,
+      }));
+  }, [league.snapshot, selectedTeam, players]);
+
+  const applySuggestion = (suggestion: TradeSuggestion) => {
+    setPlayersGiving(suggestion.giving);
+    setPlayersGetting(suggestion.getting);
+  };
+
+  const handleSelectTeam = (team: LeagueTeam | null) => {
+    setSelectedTeam(team);
+    storage.rosterId.write(team ? String(team.rosterId) : '');
+    // The giving side's pool just changed out from under any existing picks.
+    setPlayersGiving([]);
+  };
 
   const handleReset = () => {
     setPlayersGiving([]);
     setPlayersGetting([]);
   };
-
-  const leagueTypes = [
-    { value: 'redraft', label: 'Redraft' },
-    { value: 'dynasty', label: 'Dynasty' },
-  ];
-
-  const qbOptions = [
-    { value: '1', label: '1 QB' },
-    { value: '2', label: '2 QB' },
-  ];
 
   const pprOptions = [
     { value: '0', label: 'Standard (0 PPR)' },
@@ -75,15 +131,33 @@ export default function TradeAnalyzer() {
 
   return (
     <div className="grid gap-6 md:gap-8">
+      <LeagueConnect
+        snapshot={league.snapshot}
+        isLoading={league.isLoading}
+        error={league.error}
+        onLoad={league.load}
+        onClear={league.clear}
+        selectedTeam={selectedTeam}
+        onSelectTeam={handleSelectTeam}
+      />
+
       <Card className="border-gray-800/20 dark:border-gray-300/10">
         <CardHeader>
           <CardTitle>League Settings</CardTitle>
           <CardDescription>
-            Configure your league settings for accurate trade analysis
+            {isConnected
+              ? 'Read from Sleeper. Disconnect the league to set these by hand.'
+              : 'Configure your league settings for accurate trade analysis'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div
+            className={cn(
+              'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4',
+              isConnected && 'opacity-60 pointer-events-none select-none'
+            )}
+            aria-disabled={isConnected}
+          >
             <div className="space-y-2">
               <label className="text-sm font-medium">League Type</label>
               <div className="flex items-center gap-2">
@@ -91,6 +165,7 @@ export default function TradeAnalyzer() {
                 <Switch
                   id="league-type"
                   checked={leagueSettings.isDynasty}
+                  disabled={isConnected}
                   onCheckedChange={(checked) =>
                     setLeagueSettings({
                       ...leagueSettings,
@@ -110,6 +185,7 @@ export default function TradeAnalyzer() {
                     variant="outline"
                     role="combobox"
                     className="w-44 justify-between"
+                    disabled={isConnected}
                   >
                     {leagueSettings.numTeams} Teams
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -155,6 +231,7 @@ export default function TradeAnalyzer() {
                 <Switch
                   id="qb-count"
                   checked={leagueSettings.numQbs === 2}
+                  disabled={isConnected}
                   onCheckedChange={(checked) =>
                     setLeagueSettings({
                       ...leagueSettings,
@@ -176,10 +253,11 @@ export default function TradeAnalyzer() {
                     variant="outline"
                     role="combobox"
                     className="w-44 justify-between"
+                    disabled={isConnected}
                   >
                     {pprOptions.find(
                       (option) => option.value === leagueSettings.ppr.toString()
-                    )?.label || 'Select PPR'}
+                    )?.label || `${leagueSettings.ppr} PPR`}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
@@ -222,36 +300,73 @@ export default function TradeAnalyzer() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
         <Card className="border-gray-800/20 dark:border-gray-300/10">
           <CardHeader className="pb-3">
-            <CardTitle>Players You're Giving</CardTitle>
+            <CardTitle>
+              {useRoster ? `${selectedTeam!.teamName} Gives` : "Players You're Giving"}
+            </CardTitle>
             <CardDescription>
-              Select the players you're trading away
+              {useRoster
+                ? 'Your Sleeper roster, priced and sorted by value'
+                : "Select the players you're trading away"}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <PlayerSelector
               selectedPlayers={playersGiving}
               onChange={setPlayersGiving}
-              leagueSettings={leagueSettings}
+              pool={givingPool}
+              showAge={leagueSettings.isDynasty}
+              isLoading={isLoading || league.isLoading}
+              error={error}
+              onRetry={retry}
+              placeholder={useRoster ? 'Select from your roster' : 'Select players'}
+              emptyMessage={
+                useRoster ? 'No matching player on your roster.' : 'No players found.'
+              }
             />
+            {useRoster && rosterPool.unpricedNames.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Not tradeable here: {rosterPool.unpricedNames.join(', ')} —
+                FantasyCalc does not price kickers or defenses.
+              </p>
+            )}
+            {isConnected && !selectedTeam && (
+              <p className="text-xs text-muted-foreground">
+                Pick your team above to load your roster. Until then this searches
+                every player.
+              </p>
+            )}
           </CardContent>
         </Card>
 
         <Card className="border-gray-800/20 dark:border-gray-300/10">
           <CardHeader className="pb-3">
-            <CardTitle>Players You're Getting</CardTitle>
+            <CardTitle>Players You&apos;re Getting</CardTitle>
             <CardDescription>
-              Select the players you're receiving
+              Select the players you&apos;re receiving
             </CardDescription>
           </CardHeader>
           <CardContent>
             <PlayerSelector
               selectedPlayers={playersGetting}
               onChange={setPlayersGetting}
-              leagueSettings={leagueSettings}
+              pool={players}
+              showAge={leagueSettings.isDynasty}
+              isLoading={isLoading}
+              error={error}
+              onRetry={retry}
             />
           </CardContent>
         </Card>
       </div>
+
+      {useRoster && otherTeamPools.length > 0 && (
+        <TradePartners
+          myPool={givingPool}
+          others={otherTeamPools}
+          settings={leagueSettings}
+          onApply={applySuggestion}
+        />
+      )}
 
       <Card className="border-gray-800/20 dark:border-gray-300/10">
         <CardHeader className="flex flex-row items-center justify-between pb-3">
@@ -269,16 +384,7 @@ export default function TradeAnalyzer() {
           <TradeAnalysis
             playersGiving={playersGiving}
             playersGetting={playersGetting}
-            analysis={{
-              totalValueGiven: playersGiving.reduce(
-                (sum, p) => sum + p.value,
-                0
-              ),
-              totalValueReceived: playersGetting.reduce(
-                (sum, p) => sum + p.value,
-                0
-              ),
-            }}
+            leagueSettings={leagueSettings}
           />
         </CardContent>
       </Card>

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { Check, ChevronsUpDown, X, Loader2, AlertTriangle } from 'lucide-react';
-import { useDebouncedCallback } from 'use-debounce';
 import {
   Command,
   CommandEmpty,
@@ -19,193 +18,149 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { Player, FantasyCalcResponse } from '@/lib/types';
-import { fetchFantasyCalcPlayers } from '@/lib/api';
+import { isPick, type Player } from '@/lib/types';
+
+/** Rendering the whole pool on every keystroke is wasteful; the list scrolls anyway. */
+const MAX_RESULTS = 100;
 
 interface PlayerSelectorProps {
   selectedPlayers: Player[];
   onChange: (players: Player[]) => void;
-  leagueSettings: {
-    isDynasty: boolean;
-    numQbs: number;
-    numTeams: number;
-    ppr: number;
-  };
+  /**
+   * The assets this side may select from - the full value list, or a single team's
+   * roster once a league is connected. The parent owns the data so both sides share
+   * one fetch.
+   */
+  pool: Player[];
+  showAge?: boolean;
+  isLoading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  placeholder?: string;
+  emptyMessage?: string;
 }
 
 export default function PlayerSelector({
   selectedPlayers,
   onChange,
-  leagueSettings,
+  pool,
+  showAge = false,
+  isLoading = false,
+  error = null,
+  onRetry,
+  placeholder = 'Select players',
+  emptyMessage = 'No players found.',
 }: PlayerSelectorProps) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const [search, setSearch] = useState('');
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isThrottled, setIsThrottled] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // No debounce/throttle: this is a local array scan. The original throttled it and
+  // *discarded* input arriving inside the window, leaving the list stale.
+  const search = useDeferredValue(inputValue);
+
   const selectedPlayerIds = useMemo(
     () => new Set(selectedPlayers.map((p) => p.id)),
     [selectedPlayers]
   );
 
-  // Cache for API responses
-  const [apiCache, setApiCache] = useState<Record<string, Player[]>>({});
-
-  const loadPlayers = useCallback(async () => {
-    if (isThrottled) return;
-
-    const cacheKey = JSON.stringify(leagueSettings);
-
-    // Check cache first
-    if (apiCache[cacheKey]) {
-      setPlayers(apiCache[cacheKey]);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetchFantasyCalcPlayers(leagueSettings);
-      // Transform and pre-process the API response
-      const transformedPlayers: Player[] = (
-        response as FantasyCalcResponse
-      ).map((item) => ({
-        id: item.player.id,
-        name: item.player.name,
-        position: item.player.position,
-        team: item.player.maybeTeam || '',
-        value: item.value,
-        overallRank: item.overallRank,
-        positionRank: item.positionRank,
-        trend30Day: item.trend30Day,
-        redraftValue: item.redraftValue,
-        combinedValue: item.combinedValue,
-        starter: item.starter,
-        maybeTier: item.maybeTier,
-        maybeAdp: item.maybeAdp,
-        maybeTradeFrequency: item.maybeTradeFrequency,
-      }));
-
-      // Cache the transformed players
-      setApiCache((prev) => ({ ...prev, [cacheKey]: transformedPlayers }));
-      setPlayers(transformedPlayers);
-    } catch (error) {
-      console.error('Failed to load players:', error);
-      setError('Failed to load players. Please try again.');
-      setPlayers([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [leagueSettings, apiCache, isThrottled]);
-
-  useEffect(() => {
-    loadPlayers();
-  }, [loadPlayers]);
-
-  const debouncedSearch = useDebouncedCallback((value: string) => {
-    if (isThrottled) return;
-    setSearch(value);
-    setIsThrottled(true);
-    setTimeout(() => setIsThrottled(false), 1000); // Throttle for 1 second
-  }, 300);
-
-  const handleInputChange = (value: string) => {
-    setInputValue(value);
-    debouncedSearch(value);
-  };
-
   const filteredPlayers = useMemo(() => {
-    if (!search)
-      return players.filter((player) => !selectedPlayerIds.has(player.id));
-
-    const searchLower = search.toLowerCase();
-    return players.filter(
-      (player) =>
-        !selectedPlayerIds.has(player.id) &&
-        player.name.toLowerCase().includes(searchLower)
-    );
-  }, [players, selectedPlayerIds, search]);
+    const searchLower = search.trim().toLowerCase();
+    const available = pool.filter((p) => !selectedPlayerIds.has(p.id));
+    const matched = searchLower
+      ? available.filter((p) => p.name.toLowerCase().includes(searchLower))
+      : available;
+    return matched.slice(0, MAX_RESULTS);
+  }, [pool, selectedPlayerIds, search]);
 
   const handleSelect = (player: Player) => {
     onChange([...selectedPlayers, player]);
     setInputValue('');
-    setSearch('');
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
+    inputRef.current?.focus();
   };
 
   const handleRemove = (playerId: number) => {
     onChange(selectedPlayers.filter((player) => player.id !== playerId));
   };
 
+  const describe = (player: Player) => {
+    if (isPick(player)) return 'Draft pick';
+    const parts = [player.position, player.team].filter(Boolean).join(' - ');
+    return showAge && player.maybeAge
+      ? `${parts} - age ${player.maybeAge.toFixed(1)}`
+      : parts;
+  };
+
   return (
     <div className="space-y-4">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className="w-full justify-between"
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                <span className="truncate">Loading players...</span>
-              </>
-            ) : error ? (
-              <>
-                <AlertTriangle className="mr-2 h-4 w-4" />
-                <span className="truncate">{error}</span>
-              </>
-            ) : (
-              <>
-                <span className="truncate">Select players</span>
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-              </>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-full p-0" align="start">
-          <Command>
-            <CommandInput
-              placeholder="Search players..."
-              value={inputValue}
-              onValueChange={handleInputChange}
-              ref={inputRef}
-              className="w-full"
-            />
-            <CommandList>
-              <CommandEmpty>
-                {search
-                  ? 'No players found.'
-                  : 'Start typing to search players...'}
-              </CommandEmpty>
-              <CommandGroup className="max-h-[300px] overflow-y-auto">
-                {filteredPlayers.map((player) => (
-                  <CommandItem
-                    key={player.id}
-                    value={player.name}
-                    onSelect={() => handleSelect(player)}
-                    className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2"
-                  >
-                    <Check className={cn('mr-2 h-4 w-4', 'opacity-0')} />
-                    <span className="font-medium truncate">{player.name}</span>
-                    <span className="text-xs sm:text-sm text-muted-foreground truncate">
-                      {player.position} - {player.team}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+      {error ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+          <span className="flex items-center gap-2 text-sm text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {error}
+          </span>
+          {onRetry && (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
+        </div>
+      ) : (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              className="w-full justify-between"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <span className="truncate">Loading players...</span>
+                </>
+              ) : (
+                <>
+                  <span className="truncate">{placeholder}</span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-full p-0" align="start">
+            {/* We filter ourselves; without this cmdk applies a second fuzzy pass. */}
+            <Command shouldFilter={false}>
+              <CommandInput
+                placeholder="Search..."
+                value={inputValue}
+                onValueChange={setInputValue}
+                ref={inputRef}
+                className="w-full"
+              />
+              <CommandList>
+                <CommandEmpty>{emptyMessage}</CommandEmpty>
+                <CommandGroup className="max-h-[300px] overflow-y-auto">
+                  {filteredPlayers.map((player) => (
+                    <CommandItem
+                      key={player.id}
+                      value={String(player.id)}
+                      onSelect={() => handleSelect(player)}
+                      className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2"
+                    >
+                      <Check className={cn('mr-2 h-4 w-4', 'opacity-0')} />
+                      <span className="font-medium truncate">{player.name}</span>
+                      <span className="text-xs sm:text-sm text-muted-foreground truncate">
+                        {describe(player)}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {selectedPlayers.map((player) => (
