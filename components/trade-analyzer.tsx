@@ -273,16 +273,7 @@ export default function TradeAnalyzer() {
           <TradeAnalysis
             playersGiving={playersGiving}
             playersGetting={playersGetting}
-            analysis={{
-              totalValueGiven: playersGiving.reduce(
-                (sum, p) => sum + p.value,
-                0
-              ),
-              totalValueReceived: playersGetting.reduce(
-                (sum, p) => sum + p.value,
-                0
-              ),
-            }}
+            leagueSettings={leagueSettings}
           />
         </CardContent>
       </Card>
