@@ -364,6 +364,8 @@ export default function TradeAnalyzer() {
           myPool={givingPool}
           others={otherTeamPools}
           settings={leagueSettings}
+          rosterPositions={league.snapshot!.league.rosterPositions}
+          baselineTeams={league.snapshot!.teams}
           onApply={applySuggestion}
         />
       )}

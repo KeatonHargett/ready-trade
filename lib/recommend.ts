@@ -66,6 +66,18 @@ export interface RecommendOptions {
   maxPercent?: number;
   /** How many suggestions to keep per team. */
   perTeam?: number;
+  /**
+   * The league's `roster_positions` from Sleeper. Need is scored against actual
+   * starting slots when this is supplied; without it, it falls back to comparing
+   * raw counts to the league average.
+   */
+  rosterPositions?: readonly string[];
+  /**
+   * Every roster in the league, INCLUDING your own. The starter-quality baseline is
+   * a league median, so leaving your team out of it shifts the median and can flip
+   * a borderline team between thin and balanced. Defaults to the partner list.
+   */
+  baselineTeams?: LeagueTeam[];
 }
 
 /** Index combinations of a fixed size. Sizes here are 1 or 2, so this stays small. */
@@ -90,13 +102,22 @@ export function recommendPartners(
   settings: LeagueSettings,
   options: RecommendOptions = {}
 ): PartnerRecommendation[] {
-  const { maxPercent = 15, perTeam = 3 } = options;
+  const {
+    maxPercent = 15,
+    perTeam = 3,
+    rosterPositions = [],
+    baselineTeams,
+  } = options;
 
   const mine = tradeable(myPool);
   if (mine.length === 0) return [];
 
-  // League-relative, so it needs every roster - including yours - as the baseline.
-  const needs = computeLeagueNeeds(others.map((o) => o.team));
+  // The starter-quality baseline is a league median, so it must span every roster -
+  // yours included. Scoring it over the nine partners alone shifts the median.
+  const needs = computeLeagueNeeds(
+    baselineTeams ?? others.map((o) => o.team),
+    rosterPositions
+  );
 
   const results: PartnerRecommendation[] = [];
 

@@ -9,6 +9,12 @@ import {
   type RosterAsset,
 } from './types';
 
+/** Real shape of the league this was built against: 1QB/2RB/2WR/1TE/2FLEX. */
+const ROSTER_POSITIONS = [
+  'QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'FLEX',
+  'K', 'DEF', 'BN', 'BN', 'BN', 'BN', 'BN',
+];
+
 const SETTINGS: LeagueSettings = {
   isDynasty: true,
   numQbs: 1,
@@ -189,13 +195,14 @@ describe('recommendPartners', () => {
   });
 
   it('ranks a deal filling a hole above an equally fair one at a deep position', () => {
-    // They start a TE but a weak one, and are deep at WR.
+    // One weak TE against a 1.4 requirement, and deep at WR.
     const them = rosteredTeam(2, 'Them', [
       asset('TE', 500, true),
       asset('WR', 5000, true),
       asset('WR', 4800, true),
       asset('WR', 4600),
       asset('WR', 4400),
+      asset('WR', 4200),
     ]);
     const rivals = [3, 4].map((id) =>
       rosteredTeam(id, `Rival ${id}`, [
@@ -218,7 +225,7 @@ describe('recommendPartners', () => {
         ...rivals.map((t) => ({ team: t, pool: [] as Player[] })),
       ],
       SETTINGS,
-      { maxPercent: 15, perTeam: 4 }
+      { maxPercent: 15, perTeam: 4, rosterPositions: ROSTER_POSITIONS }
     );
 
     const partner = results.find((r) => r.teamName === 'Them')!;
@@ -244,7 +251,7 @@ describe('recommendPartners', () => {
       mine,
       [{ team: them, pool: theirPool }],
       SETTINGS,
-      { maxPercent: 15 }
+      { maxPercent: 15, rosterPositions: ROSTER_POSITIONS }
     );
 
     const suggestion = result.suggestions[0];
@@ -253,6 +260,45 @@ describe('recommendPartners', () => {
     expect(suggestion.evaluation.percentDifference).toBe(direct.percentDifference);
     expect(suggestion.evaluation.difference).toBe(direct.difference);
     expect(suggestion.evaluation.verdict).toBe(direct.verdict);
+  });
+
+  it('uses the whole league for the starter-quality baseline, not just partners', () => {
+    // Their QB looks strong against the one partner, and weak once the rest of the
+    // league is in the median. Only the wider baseline sees the hole.
+    const them = rosteredTeam(2, 'Them', [
+      asset('QB', 3000, true),
+      asset('RB', 5000, true),
+    ]);
+    const weakPartner = rosteredTeam(3, 'Weak', [
+      asset('QB', 1000, true),
+      asset('RB', 5000, true),
+    ]);
+    const strongRest = [4, 5, 6].map((id) =>
+      rosteredTeam(id, `Strong ${id}`, [
+        asset('QB', 9000, true),
+        asset('RB', 5000, true),
+      ])
+    );
+
+    const partners = [
+      { team: them, pool: [player(5000, { position: 'RB' })] },
+      { team: weakPartner, pool: [player(5000, { position: 'RB' })] },
+    ];
+    const mine = [player(5000, { position: 'QB' })];
+
+    const partnersOnly = recommendPartners(mine, partners, SETTINGS, {
+      rosterPositions: ROSTER_POSITIONS,
+    });
+    const wholeLeague = recommendPartners(mine, partners, SETTINGS, {
+      rosterPositions: ROSTER_POSITIONS,
+      baselineTeams: [them, weakPartner, ...strongRest],
+    });
+
+    const find = (rs: typeof partnersOnly) =>
+      rs.find((r) => r.teamName === 'Them')!;
+
+    expect(find(partnersOnly).thinPositions).not.toContain('QB');
+    expect(find(wholeLeague).thinPositions).toContain('QB');
   });
 
   it('returns nothing when there is no roster to trade from', () => {

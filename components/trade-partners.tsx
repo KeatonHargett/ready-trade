@@ -25,6 +25,10 @@ interface TradePartnersProps {
   myPool: Player[];
   others: Array<{ team: LeagueTeam; pool: Player[] }>;
   settings: LeagueSettings;
+  /** Sleeper's roster_positions, so need is scored against real starting slots. */
+  rosterPositions: readonly string[];
+  /** Every roster in the league, including yours, for the league-median baseline. */
+  baselineTeams: LeagueTeam[];
   onApply: (suggestion: TradeSuggestion) => void;
 }
 
@@ -40,14 +44,21 @@ export default function TradePartners({
   myPool,
   others,
   settings,
+  rosterPositions,
+  baselineTeams,
   onApply,
 }: TradePartnersProps) {
   const [band, setBand] = useState<FairnessBand>(15);
 
   // ~20ms for a 10-team league at typical roster sizes, so it runs inline.
   const recommendations = useMemo(
-    () => recommendPartners(myPool, others, settings, { maxPercent: band }),
-    [myPool, others, settings, band]
+    () =>
+      recommendPartners(myPool, others, settings, {
+        maxPercent: band,
+        rosterPositions,
+        baselineTeams,
+      }),
+    [myPool, others, settings, band, rosterPositions, baselineTeams]
   );
 
   return (
