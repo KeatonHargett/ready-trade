@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -13,12 +13,10 @@ import { Switch } from '@/components/ui/switch';
 import { RefreshCw } from 'lucide-react';
 import PlayerSelector from '@/components/player-selector';
 import TradeAnalysis from '@/components/trade-analysis';
-import type { Player } from '@/lib/types';
+import type { LeagueSettings, Player } from '@/lib/types';
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
@@ -34,15 +32,21 @@ export default function TradeAnalyzer() {
   const [playersGiving, setPlayersGiving] = useState<Player[]>([]);
   const [playersGetting, setPlayersGetting] = useState<Player[]>([]);
 
-  const [leagueSettings, setLeagueSettings] = useState({
-    isDynasty: false,
+  const [leagueSettings, setLeagueSettings] = useState<LeagueSettings>({
+    isDynasty: true,
     numQbs: 1,
     numTeams: 12,
     ppr: 1,
   });
 
-  // Reset players when league settings change
+  // Reset selections when league settings change. Skips the initial mount so it
+  // does not needlessly replace two already-empty arrays.
+  const isInitialRender = useRef(true);
   useEffect(() => {
+    if (isInitialRender.current) {
+      isInitialRender.current = false;
+      return;
+    }
     setPlayersGiving([]);
     setPlayersGetting([]);
   }, [leagueSettings]);
