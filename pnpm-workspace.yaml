@@ -1,0 +1,4 @@
+# sharp is only pulled in transitively; next.config sets images.unoptimized,
+# so its native build is not needed.
+allowBuilds:
+  sharp: false
